@@ -1,0 +1,15 @@
+{
+  "name": "d2-foundry-local",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix frontend\" \"electron .\""
+  },
+  "type": "module",
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    "electron": "^30.0.0"
+  },
+  "dependencies": {
+    "sqlite3": "^5.1.7"
+  }
+}
