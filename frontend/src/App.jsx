@@ -1,140 +1,239 @@
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
-// Small debounce utility
-function debounce(fn, wait) {
-  let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), wait);
-  };
+/* -----------------------------
+   Helper: Bungie icon resolver
+------------------------------ */
+function Icon({ src, size = 48 }) {
+  if (!src) {
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          background: "#333",
+          borderRadius: 4,
+        }}
+      />
+    );
+  }
+
+  const url = src.startsWith("/")
+    ? `https://www.bungie.net${src}`
+    : src;
+
+  return (
+    <img
+      src={url}
+      alt=""
+      width={size}
+      height={size}
+      style={{ objectFit: "contain" }}
+    />
+  );
 }
 
+/* =============================
+   MAIN APP
+============================= */
 export default function App() {
-  const [q, setQ] = useState("");
+  /* -------- state -------- */
+  const [query, setQuery] = useState("");
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState(null);
-  const [itemType, setItemType] = useState(3);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  // ✅ Wrap fetchItems in useCallback so the reference is stable
-  const fetchItems = useCallback(async (query = q, type = itemType) => {
+  /* -------- data fetch -------- */
+  const loadWeapons = useCallback(async (q = "") => {
+    if (!window.api?.getWeapons) {
+      setError("window.api.getWeapons not available");
+      return;
+    }
+
     setLoading(true);
+    setError(null);
+
     try {
-      if (window.api?.getWeapons) {
-        const res = await window.api.getWeapons({
-          limit: 200,
-          q: query,
-          itemType: type,
-        });
-        setItems(res.items || []);
-        setTotal(res.total || 0);
-      } else if (typeof window.fetch === "function") {
-        const resp = await fetch(
-          `/api/weapons?q=${encodeURIComponent(query)}&itemType=${type}`
-        );
-        if (resp.ok) {
-          const data = await resp.json();
-          setItems(data.items || []);
-          setTotal(data.total || 0);
-        } else {
-          setItems([]);
-          setTotal(0);
-        }
-      } else {
-        setItems([]);
-        setTotal(0);
-      }
-    } catch (e) {
-      console.error("fetchItems error", e);
+      const res = await window.api.getWeapons({
+        limit: 200,
+        q,
+        itemType: 3, // Weapons
+      });
+
+      setItems(res.items || []);
+      setTotal(res.total || 0);
+    } catch (err) {
+      console.error(err);
+      setError("Failed to load weapons");
       setItems([]);
       setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [q, itemType]); // include state dependencies if you want latest values
+  }, []);
 
-  // ✅ Memoized debounced function
-  const debouncedFetch = useMemo(
-    () => debounce(fetchItems, 250),
-    [fetchItems]
-  );
-
-  // Fetch items when itemType changes
+  /* -------- initial load -------- */
   useEffect(() => {
-    fetchItems();
-  }, [fetchItems, itemType]);
+    loadWeapons("");
+  }, [loadWeapons]);
 
-  // Fetch items when query changes (debounced)
+  /* -------- search -------- */
   useEffect(() => {
-    debouncedFetch(q, itemType);
-  }, [q, itemType, debouncedFetch]);
+    const t = setTimeout(() => loadWeapons(query), 250);
+    return () => clearTimeout(t);
+  }, [query, loadWeapons]);
 
-  // Rest of your component remains unchanged...
-
-
+  /* -------- open item -------- */
   const openItem = async (hash) => {
-    if (window.api?.getItem) {
-      const full = await window.api.getItem(hash);
-      setSelected(full);
-    } else {
-      setSelected(null);
+    if (!window.api?.getItem) return;
+
+    try {
+      const item = await window.api.getItem(hash);
+      setSelected(item);
+    } catch (err) {
+      console.error(err);
     }
   };
 
+  /* =============================
+     RENDER
+  ============================= */
   return (
     <>
-      {/* 🔴 HARD PROOF RENDER */}
+      {/* 🔴 HARD RENDER PROOF */}
       <div
         style={{
           position: "fixed",
-          top: 10,
-          left: 10,
+          top: 8,
+          left: 8,
           zIndex: 9999,
           background: "red",
           color: "white",
-          padding: "10px",
-          fontSize: "18px",
+          padding: "6px 10px",
+          fontWeight: 700,
         }}
       >
         APP RENDERED ✅
       </div>
 
-      <div className="h-screen flex bg-slate-900 text-slate-100">
-        <Sidebar
-          itemType={itemType}
-          setItemType={setItemType}
-          onReindex={() => fetchItems(q, itemType)}
-        />
+      <div
+        style={{
+          display: "flex",
+          height: "100vh",
+          background: "#0f172a",
+          color: "#e5e7eb",
+        }}
+      >
+        {/* =============================
+            LEFT PANEL — LIST
+        ============================= */}
+        <div
+          style={{
+            width: 420,
+            borderRight: "1px solid #1f2933",
+            display: "flex",
+            flexDirection: "column",
+            padding: 12,
+          }}
+        >
+          <h2 style={{ fontSize: 20, fontWeight: 700 }}>
+            Weapons
+          </h2>
 
-        <main className="flex-1 p-6 overflow-auto">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold">Local D2 Foundry</h1>
-              <div className="text-sm text-slate-400">
-                {loading ? "Loading…" : `${total} results`}
-              </div>
-            </div>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search weapons..."
+            style={{
+              marginTop: 8,
+              padding: 8,
+              background: "#020617",
+              border: "1px solid #334155",
+              color: "white",
+              borderRadius: 4,
+            }}
+          />
 
-            <div className="flex items-center gap-2">
-              <input
-                className="p-2 bg-slate-800 rounded text-slate-200"
-                placeholder="Search"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-            </div>
+          <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
+            {loading ? "Loading…" : `${total} results`}
           </div>
 
-          <ItemGrid items={items} onOpen={openItem} />
-        </main>
+          {error && (
+            <div style={{ color: "salmon", marginTop: 6 }}>
+              {error}
+            </div>
+          )}
 
-        <div className="w-96 border-l border-slate-700">
+          <div
+            style={{
+              marginTop: 10,
+              overflow: "auto",
+              flex: 1,
+            }}
+          >
+            {items.map((w) => (
+              <div
+                key={w.hash}
+                onClick={() => openItem(w.hash)}
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  padding: 8,
+                  cursor: "pointer",
+                  borderBottom: "1px solid #1f2933",
+                }}
+              >
+                <Icon src={w.displayProperties?.icon} size={40} />
+
+                <div>
+                  <div style={{ fontWeight: 600 }}>
+                    {w.displayProperties?.name}
+                  </div>
+                  <div style={{ fontSize: 11, opacity: 0.6 }}>
+                    {w.itemTypeDisplayName}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* =============================
+            RIGHT PANEL — DETAILS
+        ============================= */}
+        <div style={{ flex: 1, padding: 16, overflow: "auto" }}>
           {selected ? (
-            <ItemDetail item={selected} onClose={() => setSelected(null)} />
+            <>
+              <h2 style={{ fontSize: 24, fontWeight: 700 }}>
+                {selected.displayProperties?.name}
+              </h2>
+
+              <Icon
+                src={selected.displayProperties?.icon}
+                size={96}
+              />
+
+              <p style={{ maxWidth: 600, marginTop: 10 }}>
+                {selected.displayProperties?.description}
+              </p>
+
+              <pre
+                style={{
+                  marginTop: 16,
+                  fontSize: 11,
+                  background: "#020617",
+                  padding: 12,
+                  maxHeight: "60vh",
+                  overflow: "auto",
+                }}
+              >
+                {JSON.stringify(selected, null, 2)}
+              </pre>
+            </>
           ) : (
-            <div className="p-6 text-slate-400">
-              Select an item to view details
+            <div style={{ opacity: 0.6 }}>
+              Select a weapon to view details
             </div>
           )}
         </div>

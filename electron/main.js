@@ -69,6 +69,9 @@ function createWindow() {
     },
   });
 
+  
+  win.webContents.openDevTools({ mode: "detach" });
+
   // Development: load Vite dev server
   if (process.env.NODE_ENV === "development") {
     win.loadURL("http://localhost:5173");
