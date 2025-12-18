@@ -1,35 +1,15 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 
-const BUNGIE = 'https://www.bungie.net';
-const SLOT_ICONS = {
-  1498876634: '/img/destiny_content/icons/kinetic.png',
-  2465295065: '/img/destiny_content/icons/energy.png',
-  953998645: '/img/destiny_content/icons/power.png',
-};
+const BUNGIE = "https://www.bungie.net";
 
-// Filter helper – excludes mementos, mods, trackers, ornaments, masterworks, deepsight, shaders
-function isValidPerk(perk) {
-  if (!perk?.displayProperties?.icon) return false;
-  const name = (perk.displayProperties?.name || '').toLowerCase();
-  const typeName = (perk.itemTypeDisplayName || '').toLowerCase();
-  const plugCat = perk.plug?.plugCategoryIdentifier || '';
-  return !(
-    plugCat.includes('memento') ||
-    plugCat.includes('extractor') ||
-    plugCat.includes('mod') ||
-    plugCat.includes('tracker') ||
-    plugCat.includes('ornament') ||
-    plugCat.includes('masterwork') ||
-    name.includes('deepsight') ||
-    typeName.includes('shader') ||
-    typeName.includes('ornament') ||
-    name.includes('ornament')
-  );
-}
-
+/* =============================
+   ICON
+============================= */
 function Icon({ src, size = 40, selected = false }) {
   if (!src) return <div style={{ width: size, height: size }} />;
-  const url = src.startsWith('/') ? `${BUNGIE}${src}` : src;
+
+  const url = src.startsWith("/") ? `${BUNGIE}${src}` : src;
+
   return (
     <img
       src={url}
@@ -37,122 +17,154 @@ function Icon({ src, size = 40, selected = false }) {
       height={size}
       alt=""
       style={{
-        borderRadius: 4,
-        border: selected ? '2px solid #facc15' : '1px solid #1f2933',
-        boxShadow: selected ? '0 0 8px rgba(250,204,21,.8)' : 'none',
+        borderRadius: 6,
+        border: selected ? "2px solid #facc15" : "1px solid #1f2933",
+        boxShadow: selected ? "0 0 10px rgba(250,204,21,.7)" : "none",
       }}
     />
   );
 }
 
-function PerkColumns({ item }) {
-  const [columns, setColumns] = useState([]);
+/* =============================
+   PERK FILTER (D2 Foundry accurate)
+============================= */
+function isRealPerk(perk) {
+  if (!perk?.displayProperties?.icon) return false;
+
+  const name = perk.displayProperties.name.toLowerCase();
+  const type = (perk.itemTypeDisplayName || "").toLowerCase();
+  const cat = perk.plug?.plugCategoryIdentifier || "";
+
+  return !(
+    cat.includes("memento") ||
+    cat.includes("ornament") ||
+    cat.includes("tracker") ||
+    cat.includes("masterwork") ||
+    cat.includes("mod") ||
+    cat.includes("extractor") ||
+    name.includes("deepsight") ||
+    type.includes("shader")
+  );
+}
+
+/* =============================
+   SOCKET CATEGORY HASHES
+   (THIS IS THE KEY FIX)
+============================= */
+const SOCKET_CATEGORY = {
+  BARREL: 3956125808,
+  MAGAZINE: 4241085061,
+  TRAITS: 2614797986,
+  ORIGIN: 3993098925,
+};
+
+/* =============================
+   PERK GRID (D2 Foundry logic)
+============================= */
+function PerkGrid({ item }) {
   const [selected, setSelected] = useState({});
+  const [hover, setHover] = useState(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function buildColumns() {
-      if (!item?.sockets?.socketEntries || !window.api?.getPlugSet) return;
-      const cols = [];
-      for (let idx = 0; idx < item.sockets.socketEntries.length; idx++) {
-        const socket = item.sockets.socketEntries[idx];
-        const plugSetHash =
-          socket.randomizedPlugSetHash || socket.reusablePlugSetHash;
-        let perks = [];
+  const columns = useMemo(() => {
+    if (!item?.sockets?.socketEntries) return null;
 
-        if (plugSetHash) {
-          const plugSet = await window.api.getPlugSet(plugSetHash);
-          if (plugSet?.reusablePlugItems) {
-            perks = plugSet.reusablePlugItems
-              .map((p) => window.api.getItemSync(p.plugItemHash))
-              .filter(isValidPerk);
-          }
-        }
+    const result = {
+      Barrel: [],
+      Magazine: [],
+      "Trait 1": [],
+      "Trait 2": [],
+      Origin: [],
+    };
 
-        // fallback to reusablePlugItems if no plug set
-        if (!perks.length && Array.isArray(socket.reusablePlugItems)) {
-          perks = await Promise.all(
-            socket.reusablePlugItems.map(async (p) => {
-              const perk = await window.api.getItem(p.plugItemHash);
-              return isValidPerk(perk) ? perk : null;
-            })
-          ).then((arr) => arr.filter(Boolean));
-        }
+    let traitColumn = 1;
 
-        // fallback to single initial item if still empty
-        if (!perks.length && socket.singleInitialItemHash) {
-          const perk = window.api.getItemSync(socket.singleInitialItemHash);
-          if (isValidPerk(perk)) perks = [perk];
-        }
+    for (const socket of item.sockets.socketEntries) {
+      if (!socket.socketCategoryHashes) continue;
 
-        // deduplicate by hash
-        const seen = new Set();
-        perks = perks.filter((perk) => {
-          if (seen.has(perk.hash)) return false;
-          seen.add(perk.hash);
-          return true;
-        });
+      let column = null;
 
-        if (perks.length) {
-          cols.push({
-            socketIndex: idx,
-            perks,
-          });
-        }
+      if (socket.socketCategoryHashes.includes(SOCKET_CATEGORY.BARREL))
+        column = "Barrel";
+      else if (socket.socketCategoryHashes.includes(SOCKET_CATEGORY.MAGAZINE))
+        column = "Magazine";
+      else if (socket.socketCategoryHashes.includes(SOCKET_CATEGORY.ORIGIN))
+        column = "Origin";
+      else if (socket.socketCategoryHashes.includes(SOCKET_CATEGORY.TRAITS)) {
+        column = traitColumn === 1 ? "Trait 1" : "Trait 2";
+        traitColumn++;
       }
-      if (!cancelled) {
-        setColumns(cols);
-        setSelected({});
+
+      if (!column) continue;
+
+      const plugSetHash =
+        socket.randomizedPlugSetHash || socket.reusablePlugSetHash;
+
+      if (!plugSetHash) continue;
+
+      const plugSet = window.api.getPlugSet
+        ? window.api.getPlugSet(plugSetHash)
+        : null;
+
+      const plugs =
+        plugSet?.randomizedPlugItems ||
+        plugSet?.reusablePlugItems ||
+        [];
+
+      for (const plug of plugs) {
+        const perk = window.api.getItemSync(plug.plugItemHash);
+        if (!isRealPerk(perk)) continue;
+        result[column].push(perk);
       }
     }
-    buildColumns();
-    return () => {
-      cancelled = true;
-    };
+
+    // Deduplicate
+    for (const key in result) {
+      const seen = new Set();
+      result[key] = result[key].filter(p => {
+        if (seen.has(p.hash)) return false;
+        seen.add(p.hash);
+        return true;
+      });
+    }
+
+    return result;
   }, [item]);
 
-  if (!columns.length) return null;
-
-  const labels = ['Barrel', 'Magazine', 'Trait 1', 'Trait 2', 'Origin'];
+  if (!columns || !Object.values(columns).some(c => c.length)) {
+    return <div style={{ opacity: 0.6, marginTop: 20 }}>No perks found</div>;
+  }
 
   return (
-    <div style={{ marginTop: 20 }}>
-      <h3>Perks</h3>
-      <div style={{ display: 'flex', gap: 16 }}>
-        {columns.map((col, index) => (
-          <div key={col.socketIndex}>
+    <div style={{ marginTop: 24 }}>
+      <div style={{ display: "flex", gap: 20 }}>
+        {Object.entries(columns).map(([label, perks]) => (
+          <div key={label} style={{ width: 90 }}>
             <div
               style={{
+                textAlign: "center",
                 fontSize: 12,
-                opacity: 0.6,
-                textAlign: 'center',
+                opacity: 0.7,
+                marginBottom: 8,
               }}
             >
-              {labels[index] || `Slot ${index + 1}`}
+              {label}
             </div>
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-              }}
-            >
-              {col.perks.map((perk) => {
-                const isSel = selected[col.socketIndex] === perk.hash;
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {perks.map(perk => {
+                const isSel = selected[label] === perk.hash;
                 return (
                   <div
                     key={perk.hash}
-                    title={`${perk.displayProperties?.name}\n\n${perk.displayProperties?.description || ''}`}
+                    onMouseEnter={() => setHover(perk)}
+                    onMouseLeave={() => setHover(null)}
                     onClick={() =>
-                      setSelected((prev) => ({
-                        ...prev,
-                        [col.socketIndex]: perk.hash,
-                      }))
+                      setSelected(prev => ({ ...prev, [label]: perk.hash }))
                     }
-                    style={{ cursor: 'pointer' }}
+                    style={{ cursor: "pointer" }}
                   >
                     <Icon
-                      src={perk.displayProperties?.icon}
+                      src={perk.displayProperties.icon}
                       selected={isSel}
                     />
                   </div>
@@ -161,37 +173,44 @@ function PerkColumns({ item }) {
             </div>
           </div>
         ))}
+
+        {hover && (
+          <div
+            style={{
+              marginLeft: 20,
+              padding: 12,
+              background: "#020617",
+              border: "1px solid #1f2933",
+              borderRadius: 8,
+              width: 260,
+            }}
+          >
+            <h4>{hover.displayProperties.name}</h4>
+            <p style={{ fontSize: 13, opacity: 0.8 }}>
+              {hover.displayProperties.description}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
+/* =============================
+   MAIN APP
+============================= */
 export default function App() {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [weapons, setWeapons] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
 
-  const loadWeapons = useCallback(async (q = '') => {
-    if (!window.api?.getWeapons) {
-      setError('window.api.getWeapons not available');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await window.api.getWeapons({
-        limit: 200,
-        q,
-        itemType: 3,
-      });
-      setWeapons(res.items || []);
-    } catch {
-      setError('Failed to load weapons');
-    } finally {
-      setLoading(false);
-    }
+  const loadWeapons = useCallback(async q => {
+    const res = await window.api.getWeapons({
+      limit: 200,
+      q,
+      itemType: 3,
+    });
+    setWeapons(res.items || []);
   }, []);
 
   useEffect(() => {
@@ -199,91 +218,44 @@ export default function App() {
     return () => clearTimeout(t);
   }, [query, loadWeapons]);
 
-  const handleSelect = async (hash) => {
-    if (!window.api?.getItem) return;
-    const item = await window.api.getItem(hash);
-    setSelected(item);
-  };
-
   return (
-    <div
-      style={{
-        display: 'flex',
-        height: '100vh',
-        background: '#0f172a',
-        color: '#e5e7eb',
-      }}
-    >
-      <div
-        style={{
-          width: 420,
-          padding: 12,
-          borderRight: '1px solid #1f2933',
-        }}
-      >
+    <div style={{ display: "flex", height: "100vh", background: "#0f172a", color: "#e5e7eb" }}>
+      {/* LEFT */}
+      <div style={{ width: 420, borderRight: "1px solid #1f2933", padding: 12 }}>
         <h2>Weapons</h2>
         <input
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={e => setQuery(e.target.value)}
           placeholder="Search…"
           style={{
             marginTop: 8,
             padding: 8,
-            width: '100%',
-            background: '#020617',
-            color: '#fff',
-            border: '1px solid #334155',
+            width: "100%",
+            background: "#020617",
+            color: "#fff",
+            border: "1px solid #334155",
           }}
         />
-        {loading && (
-          <div
-            style={{
-              marginTop: 6,
-            }}
-          >
-            Loading…
-          </div>
-        )}
-        {error && (
-          <div
-            style={{
-              marginTop: 6,
-              color: 'salmon',
-            }}
-          >
-            {error}
-          </div>
-        )}
-        <div
-          style={{
-            marginTop: 10,
-            overflowY: 'auto',
-            height: '85%',
-          }}
-        >
-          {weapons.map((w) => (
+
+        <div style={{ marginTop: 10, overflowY: "auto", height: "85%" }}>
+          {weapons.map(w => (
             <div
               key={w.hash}
-              onClick={() => handleSelect(w.hash)}
+              onClick={async () =>
+                setSelected(await window.api.getItem(w.hash))
+              }
               style={{
-                display: 'flex',
+                display: "flex",
                 gap: 10,
                 padding: 8,
-                cursor: 'pointer',
-                borderBottom: '1px solid #1f2933',
+                cursor: "pointer",
+                borderBottom: "1px solid #1f2933",
               }}
             >
-              <Icon src={w.displayProperties?.icon} size={40} />
+              <Icon src={w.icon} />
               <div>
-                <div style={{ fontWeight: 600 }}>
-                  {w.displayProperties?.name}
-                </div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    opacity: 0.6,
-                  }}
-                >
+                <div style={{ fontWeight: 600 }}>{w.name}</div>
+                <div style={{ fontSize: 11, opacity: 0.6 }}>
                   {w.itemTypeDisplayName}
                 </div>
               </div>
@@ -292,74 +264,15 @@ export default function App() {
         </div>
       </div>
 
-      <div
-        style={{
-          flex: 1,
-          padding: 16,
-          overflowY: 'auto',
-        }}
-      >
+      {/* RIGHT */}
+      <div style={{ flex: 1, padding: 16 }}>
         {selected ? (
           <>
-            <div
-              style={{
-                display: 'flex',
-                gap: 16,
-              }}
-            >
-              <Icon
-                src={selected.displayProperties?.icon}
-                size={96}
-              />
-              <div>
-                <h2>
-                  {selected.displayProperties?.name}
-                </h2>
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 6,
-                    marginTop: 4,
-                  }}
-                >
-                  <Icon
-                    src={
-                      SLOT_ICONS[
-                        selected.inventory?.bucketTypeHash
-                      ] || null
-                    }
-                    size={28}
-                  />
-                  <span
-                    style={{
-                      opacity: 0.7,
-                    }}
-                  >
-                    {selected.itemTypeDisplayName}
-                  </span>
-                </div>
-                <p
-                  style={{
-                    marginTop: 10,
-                    maxWidth: 600,
-                  }}
-                >
-                  {
-                    selected.displayProperties?.description
-                  }
-                </p>
-              </div>
-            </div>
-            <PerkColumns item={selected} />
+            <h2>{selected.displayProperties.name}</h2>
+            <PerkGrid item={selected} />
           </>
         ) : (
-          <div
-            style={{
-              opacity: 0.6,
-            }}
-          >
-            Select a weapon to view details
-          </div>
+          <div style={{ opacity: 0.6 }}>Select a weapon</div>
         )}
       </div>
     </div>
