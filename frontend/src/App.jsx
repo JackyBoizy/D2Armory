@@ -1,8 +1,19 @@
 import React, { useEffect, useState, useCallback } from "react";
 
-/* -----------------------------
-   Helper: Bungie icon resolver
------------------------------- */
+/* =============================
+   CONSTANTS
+============================= */
+const BUNGIE = "https://www.bungie.net";
+
+const SLOT_ICONS = {
+  1498876634: "/img/destiny_content/icons/kinetic.png", // Kinetic
+  2465295065: "/img/destiny_content/icons/energy.png",  // Energy
+  953998645: "/img/destiny_content/icons/power.png",    // Power
+};
+
+/* =============================
+   ICON HELPER
+============================= */
 function Icon({ src, size = 48 }) {
   if (!src) {
     return (
@@ -10,25 +21,51 @@ function Icon({ src, size = 48 }) {
         style={{
           width: size,
           height: size,
-          background: "#333",
+          background: "#1f2933",
           borderRadius: 4,
         }}
       />
     );
   }
 
-  const url = src.startsWith("/")
-    ? `https://www.bungie.net${src}`
-    : src;
+  const url = src.startsWith("/") ? `${BUNGIE}${src}` : src;
 
   return (
     <img
       src={url}
-      alt=""
       width={size}
       height={size}
       style={{ objectFit: "contain" }}
+      alt=""
     />
+  );
+}
+
+/* =============================
+   PERK GRID
+============================= */
+function PerkGrid({ item }) {
+  if (!item?.sockets?.socketEntries) return null;
+
+  const perks = item.sockets.socketEntries
+    .map((s) => s.singleInitialItemHash)
+    .filter(Boolean)
+    .map((hash) => window.api?.getItemSync?.(hash))
+    .filter(Boolean);
+
+  if (!perks.length) return null;
+
+  return (
+    <div>
+      <h3 style={{ marginBottom: 6 }}>Perks</h3>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {perks.map((p) => (
+          <div key={p.hash} title={p.displayProperties?.name}>
+            <Icon src={p.displayProperties?.icon} size={40} />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -36,7 +73,6 @@ function Icon({ src, size = 48 }) {
    MAIN APP
 ============================= */
 export default function App() {
-  /* -------- state -------- */
   const [query, setQuery] = useState("");
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
@@ -44,7 +80,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  /* -------- data fetch -------- */
+  /* -------- fetch weapons -------- */
   const loadWeapons = useCallback(async (q = "") => {
     if (!window.api?.getWeapons) {
       setError("window.api.getWeapons not available");
@@ -58,186 +94,153 @@ export default function App() {
       const res = await window.api.getWeapons({
         limit: 200,
         q,
-        itemType: 3, // Weapons
+        itemType: 3,
       });
 
       setItems(res.items || []);
       setTotal(res.total || 0);
-    } catch (err) {
-      console.error(err);
+    } catch {
       setError("Failed to load weapons");
-      setItems([]);
-      setTotal(0);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  /* -------- initial load -------- */
   useEffect(() => {
     loadWeapons("");
   }, [loadWeapons]);
 
-  /* -------- search -------- */
   useEffect(() => {
     const t = setTimeout(() => loadWeapons(query), 250);
     return () => clearTimeout(t);
   }, [query, loadWeapons]);
 
-  /* -------- open item -------- */
   const openItem = async (hash) => {
     if (!window.api?.getItem) return;
-
-    try {
-      const item = await window.api.getItem(hash);
-      setSelected(item);
-    } catch (err) {
-      console.error(err);
-    }
+    const item = await window.api.getItem(hash);
+    setSelected(item);
   };
 
   /* =============================
      RENDER
   ============================= */
   return (
-    <>
-      {/* 🔴 HARD RENDER PROOF */}
-      <div
-        style={{
-          position: "fixed",
-          top: 8,
-          left: 8,
-          zIndex: 9999,
-          background: "red",
-          color: "white",
-          padding: "6px 10px",
-          fontWeight: 700,
-        }}
-      >
-        APP RENDERED ✅
-      </div>
+    <div style={{ display: "flex", height: "100vh", background: "#0f172a", color: "#e5e7eb" }}>
+      {/* =============================
+          LEFT — LIST
+      ============================= */}
+      <div style={{ width: 420, borderRight: "1px solid #1f2933", padding: 12 }}>
+        <h2>Weapons</h2>
 
-      <div
-        style={{
-          display: "flex",
-          height: "100vh",
-          background: "#0f172a",
-          color: "#e5e7eb",
-        }}
-      >
-        {/* =============================
-            LEFT PANEL — LIST
-        ============================= */}
-        <div
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search…"
           style={{
-            width: 420,
-            borderRight: "1px solid #1f2933",
-            display: "flex",
-            flexDirection: "column",
-            padding: 12,
+            marginTop: 8,
+            padding: 8,
+            width: "100%",
+            background: "#020617",
+            color: "#fff",
+            border: "1px solid #334155",
           }}
-        >
-          <h2 style={{ fontSize: 20, fontWeight: 700 }}>
-            Weapons
-          </h2>
+        />
 
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search weapons..."
-            style={{
-              marginTop: 8,
-              padding: 8,
-              background: "#020617",
-              border: "1px solid #334155",
-              color: "white",
-              borderRadius: 4,
-            }}
-          />
-
-          <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
-            {loading ? "Loading…" : `${total} results`}
-          </div>
-
-          {error && (
-            <div style={{ color: "salmon", marginTop: 6 }}>
-              {error}
-            </div>
-          )}
-
-          <div
-            style={{
-              marginTop: 10,
-              overflow: "auto",
-              flex: 1,
-            }}
-          >
-            {items.map((w) => (
-              <div
-                key={w.hash}
-                onClick={() => openItem(w.hash)}
-                style={{
-                  display: "flex",
-                  gap: 10,
-                  padding: 8,
-                  cursor: "pointer",
-                  borderBottom: "1px solid #1f2933",
-                }}
-              >
-                <Icon src={w.displayProperties?.icon} size={40} />
-
-                <div>
-                  <div style={{ fontWeight: 600 }}>
-                    {w.displayProperties?.name}
-                  </div>
-                  <div style={{ fontSize: 11, opacity: 0.6 }}>
-                    {w.itemTypeDisplayName}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
+          {loading ? "Loading…" : `${total} results`}
         </div>
 
-        {/* =============================
-            RIGHT PANEL — DETAILS
-        ============================= */}
-        <div style={{ flex: 1, padding: 16, overflow: "auto" }}>
-          {selected ? (
-            <>
-              <h2 style={{ fontSize: 24, fontWeight: 700 }}>
-                {selected.displayProperties?.name}
-              </h2>
+        {error && <div style={{ color: "salmon" }}>{error}</div>}
 
-              <Icon
-                src={selected.displayProperties?.icon}
-                size={96}
-              />
+        <div style={{ marginTop: 10, overflow: "auto", height: "85%" }}>
+          {items.map((w) => (
+            <div
+              key={w.hash}
+              onClick={() => openItem(w.hash)}
+              style={{
+                display: "flex",
+                gap: 10,
+                padding: 8,
+                cursor: "pointer",
+                borderBottom: "1px solid #1f2933",
+              }}
+            >
+              <Icon src={w.displayProperties?.icon} size={40} />
 
-              <p style={{ maxWidth: 600, marginTop: 10 }}>
-                {selected.displayProperties?.description}
-              </p>
+              <div>
+                <div style={{ fontWeight: 600 }}>
+                  {w.displayProperties?.name}
+                </div>
+                <div style={{ fontSize: 11, opacity: 0.6 }}>
+                  {w.itemTypeDisplayName}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
+      {/* =============================
+          RIGHT — DETAILS
+      ============================= */}
+      <div style={{ flex: 1, padding: 16, overflow: "auto" }}>
+        {selected ? (
+          <>
+            {/* HEADER */}
+            <div style={{ display: "flex", gap: 16 }}>
+              <Icon src={selected.displayProperties?.icon} size={96} />
+
+              <div>
+                <h2 style={{ fontSize: 26 }}>
+                  {selected.displayProperties?.name}
+                </h2>
+
+                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                  <Icon
+                    src={SLOT_ICONS[selected.inventory?.bucketTypeHash]}
+                    size={28}
+                  />
+                  <span style={{ opacity: 0.7 }}>
+                    {selected.itemTypeDisplayName}
+                  </span>
+                </div>
+
+                <p style={{ marginTop: 10, maxWidth: 600 }}>
+                  {selected.displayProperties?.description}
+                </p>
+              </div>
+            </div>
+
+            {/* PERKS */}
+            <div style={{ marginTop: 20 }}>
+              <PerkGrid item={selected} />
+            </div>
+
+            {/* RAW JSON */}
+            <details style={{ marginTop: 20 }}>
+              <summary style={{ cursor: "pointer" }}>
+                Raw Item JSON
+              </summary>
               <pre
                 style={{
-                  marginTop: 16,
+                  marginTop: 10,
                   fontSize: 11,
                   background: "#020617",
                   padding: 12,
-                  maxHeight: "60vh",
+                  maxHeight: 400,
                   overflow: "auto",
                 }}
               >
                 {JSON.stringify(selected, null, 2)}
               </pre>
-            </>
-          ) : (
-            <div style={{ opacity: 0.6 }}>
-              Select a weapon to view details
-            </div>
-          )}
-        </div>
+            </details>
+          </>
+        ) : (
+          <div style={{ opacity: 0.6 }}>
+            Select a weapon to view details
+          </div>
+        )}
       </div>
-    </>
+    </div>
   );
 }
