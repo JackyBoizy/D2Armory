@@ -10,12 +10,7 @@ const __dirname = path.dirname(__filename);
 // =============================
 // MANIFEST DATABASE
 // =============================
-const dbPath = path.join(
-  __dirname,
-  "..",
-  "manifest",
-  "world_sql_content.sqlite3"
-);
+const dbPath = path.join(__dirname, "..", "manifest", "world_sql_content.sqlite3");
 
 let db;
 const indexByHash = new Map();   // Lightweight index for lists
@@ -28,38 +23,29 @@ async function loadManifest() {
   return new Promise((resolve, reject) => {
     db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
       if (err) return reject(err);
-
-      db.all(
-        "SELECT json FROM DestinyInventoryItemDefinition",
-        (err, rows) => {
-          if (err) return reject(err);
-
-          for (const r of rows) {
-            try {
-              const item = JSON.parse(r.json);
-
-              const hash = item.hash ?? item.itemHash;
-              if (!hash) continue;
-
-              indexByHash.set(hash, {
-                hash,
-                name: item.displayProperties?.name ?? "",
-                icon: item.displayProperties?.icon ?? "",
-                itemType: item.itemType ?? null,
-                itemTypeDisplayName: item.itemTypeDisplayName ?? "",
-                bucketHash: item.inventory?.bucketTypeHash ?? null,
-              });
-
-              fullItemMap.set(hash, item);
-            } catch {
-              // skip malformed rows
-            }
+      db.all("SELECT json FROM DestinyInventoryItemDefinition", (err, rows) => {
+        if (err) return reject(err);
+        for (const r of rows) {
+          try {
+            const item = JSON.parse(r.json);
+            const hash = item.hash ?? item.itemHash;
+            if (!hash) continue;
+            indexByHash.set(hash, {
+              hash,
+              name: item.displayProperties?.name ?? "",
+              icon: item.displayProperties?.icon ?? "",
+              itemType: item.itemType ?? null,
+              itemTypeDisplayName: item.itemTypeDisplayName ?? "",
+              bucketHash: item.inventory?.bucketTypeHash ?? null,
+            });
+            fullItemMap.set(hash, item);
+          } catch {
+            // skip malformed rows
           }
-
-          console.log("✅ Manifest loaded:", indexByHash.size, "items");
-          resolve();
         }
-      );
+        console.log("✅ Manifest loaded:", indexByHash.size, "items");
+        resolve();
+      });
     });
   });
 }
@@ -75,7 +61,7 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false, // REQUIRED for sync IPC
+      sandbox: false, // allow sync IPC
     },
   });
 
@@ -84,40 +70,57 @@ function createWindow() {
   if (process.env.NODE_ENV === "development") {
     win.loadURL("http://localhost:5173");
   } else {
-    win.loadFile(
-      path.join(__dirname, "..", "frontend", "dist", "index.html")
-    );
+    win.loadFile(path.join(__dirname, "..", "frontend", "dist", "index.html"));
   }
 }
 
 // =============================
 // IPC HANDLERS
 // =============================
-ipcMain.handle("get-weapons", (event, opts = {}) => {
+ipcMain.handle("get-weapons", (_event, opts = {}) => {
   const limit = opts.limit ?? 200;
   const offset = opts.offset ?? 0;
   const q = (opts.q || "").toLowerCase();
   const itemType = opts.itemType ?? 3;
-
   const filtered = Array.from(indexByHash.values()).filter((item) => {
     if (item.itemType !== itemType) return false;
     if (q && !item.name.toLowerCase().includes(q)) return false;
     return true;
   });
-
   return {
     total: filtered.length,
     items: filtered.slice(offset, offset + limit),
   };
 });
 
-ipcMain.handle("get-item", (event, hash) => {
+ipcMain.handle("get-item", (_event, hash) => {
   return fullItemMap.get(hash) || null;
 });
 
-// 🔥 SYNC ACCESS (REQUIRED FOR PERKS)
+// Synchronous item access for quick lookups (e.g. bucket icons)
 ipcMain.on("get-item-sync", (event, hash) => {
   event.returnValue = fullItemMap.get(hash) || null;
+});
+
+// New: fetch plug set by hash (for full perk pool)
+ipcMain.handle("get-plugset", (_event, plugSetHash) => {
+  return new Promise((resolve) => {
+    db.get(
+      "SELECT json FROM DestinyPlugSetDefinition WHERE hash = ?",
+      plugSetHash,
+      (err, row) => {
+        if (err || !row) {
+          resolve(null);
+        } else {
+          try {
+            resolve(JSON.parse(row.json));
+          } catch {
+            resolve(null);
+          }
+        }
+      }
+    );
+  });
 });
 
 // =============================
