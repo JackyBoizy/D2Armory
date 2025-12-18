@@ -1,11 +1,7 @@
 // frontend/src/App.jsx
-// LocalD2Foundry React UI (single-file starter)
-// Drop this file into frontend/src/App.jsx (replace existing App.jsx)
-// Requires TailwindCSS configured in your Vite React project.
-
 import React, { useEffect, useState, useMemo } from 'react';
 
-// ------ Utility: debounce ------
+// Small debounce utility
 function debounce(fn, wait) {
   let t;
   return (...args) => {
@@ -14,18 +10,18 @@ function debounce(fn, wait) {
   };
 }
 
-// ------ Small UI pieces in one file ------
+// Icon helper (uses Bungie CDN if path is relative)
 function Icon({ src, alt, className = '' }) {
-  if (!src) return <div className={`bg-gray-800 ${className}`} />;
+  if (!src) return <div className={`bg-slate-700 ${className}`} />;
   const url = src.startsWith('/') ? `https://www.bungie.net${src}` : src;
   return <img src={url} alt={alt} className={className} />;
 }
 
-function Sidebar({ itemType, setItemType, onRefresh }) {
+function Sidebar({ itemType, setItemType, onReindex }) {
   return (
     <aside className="w-64 p-4 border-r border-slate-700 bg-slate-900 text-slate-200 flex flex-col gap-4">
       <div className="text-xl font-semibold">D2 Foundry — Local</div>
-      <div className="mt-2 text-sm text-slate-400">Browse the local Destiny manifest.</div>
+      <div className="mt-2 text-sm text-slate-400">Browse the local Destiny manifest</div>
 
       <div className="mt-4">
         <div className="text-xs text-slate-400 mb-1">Category</div>
@@ -41,8 +37,12 @@ function Sidebar({ itemType, setItemType, onRefresh }) {
       </div>
 
       <div className="mt-auto flex gap-2">
-        <button onClick={onRefresh} className="flex-1 p-2 rounded bg-emerald-600 hover:bg-emerald-500">Re-index</button>
-        <button onClick={() => window.location.reload()} className="p-2 rounded bg-slate-700">Reload</button>
+        <button onClick={onReindex} className="flex-1 p-2 rounded bg-emerald-600 hover:bg-emerald-500">
+          Re-index
+        </button>
+        <button onClick={() => window.location.reload()} className="p-2 rounded bg-slate-700">
+          Reload
+        </button>
       </div>
     </aside>
   );
@@ -62,7 +62,7 @@ function ItemCard({ item, onOpen }) {
           <div className="font-semibold text-slate-100">{item.name}</div>
           <div className="text-xs text-slate-400">{item.itemTypeDisplayName}</div>
         </div>
-        <div className="text-sm text-slate-300">{''}</div>
+        <div className="text-sm text-slate-300">{/* optional extra */}</div>
       </div>
       <div className="px-3 pb-3 text-xs text-slate-400">Hash: {item.hash}</div>
     </div>
@@ -103,13 +103,14 @@ function ItemDetail({ item, onClose }) {
       </pre>
 
       <div className="mt-4">
-        <button onClick={onClose} className="px-3 py-2 rounded bg-rose-600">Close</button>
+        <button onClick={onClose} className="px-3 py-2 rounded bg-rose-600">
+          Close
+        </button>
       </div>
     </div>
   );
 }
 
-// ------ App Component ------
 export default function App() {
   const [q, setQ] = useState('');
   const [items, setItems] = useState([]);
@@ -118,21 +119,40 @@ export default function App() {
   const [itemType, setItemType] = useState(3);
   const [loading, setLoading] = useState(false);
 
+  // fetch items via the preload API exposed by Electron
   const fetchItems = async (query = q, type = itemType) => {
     setLoading(true);
     try {
-      const res = await window.api.getWeapons({ limit: 200, q: query, itemType: type });
-      setItems(res.items || []);
-      setTotal(res.total || 0);
+      // fall back if window.api isn't available (use fetch to local dev server or mock)
+      if (window.api?.getWeapons) {
+        const res = await window.api.getWeapons({ limit: 200, q: query, itemType: type });
+        setItems(res.items || []);
+        setTotal(res.total || 0);
+      } else if (typeof window.fetch === 'function') {
+        // optional fallback: call a local backend if you have one
+        const resp = await fetch(`/api/weapons?q=${encodeURIComponent(query)}&itemType=${type}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          setItems(data.items || []);
+          setTotal(data.total || 0);
+        } else {
+          setItems([]);
+          setTotal(0);
+        }
+      } else {
+        setItems([]);
+        setTotal(0);
+      }
     } catch (e) {
-      console.error(e);
+      console.error('fetchItems error', e);
+      setItems([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
   };
 
-  // debounced search
-  const debouncedFetch = useMemo(() => debounce((val, t) => fetchItems(val, t), 250), []);
+  const debouncedFetch = useMemo(() => debounce((val, t) => fetchItems(val, t), 250), [/* none */]);
 
   useEffect(() => {
     fetchItems();
@@ -145,73 +165,63 @@ export default function App() {
   }, [q]);
 
   const openItem = async (hash) => {
-    const full = await window.api.getItem(hash);
-    setSelected(full);
+    if (window.api?.getItem) {
+      const full = await window.api.getItem(hash);
+      setSelected(full);
+    } else {
+      setSelected(null);
+    }
   };
 
   return (
-    <div className="h-screen flex bg-slate-900 text-slate-100">
-      <Sidebar itemType={itemType} setItemType={setItemType} onRefresh={() => fetchItems(q, itemType)} />
-
-      <main className="flex-1 p-6 overflow-auto">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">Local D2 Foundry</h1>
-            <div className="text-sm text-slate-400">{loading ? 'Loading…' : `${total} results`}</div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <input
-              className="p-2 bg-slate-800 rounded text-slate-200"
-              placeholder="Search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <ItemGrid items={items} onOpen={openItem} />
-      </main>
-
-      <div className="w-96 border-l border-slate-700">
-        {selected ? (
-          <ItemDetail item={selected} onClose={() => setSelected(null)} />
-        ) : (
-          <div className="p-6 text-slate-400">Select an item to view details</div>
-        )}
+    <>
+      {/* 🔴 HARD PROOF RENDER */}
+      <div
+        style={{
+          position: "fixed",
+          top: 10,
+          left: 10,
+          zIndex: 9999,
+          background: "red",
+          color: "white",
+          padding: "10px",
+          fontSize: "18px",
+        }}
+      >
+        APP RENDERED ✅
       </div>
-    </div>
+
+      <div className="h-screen flex bg-slate-900 text-slate-100">
+        <Sidebar itemType={itemType} setItemType={setItemType} onReindex={() => fetchItems(q, itemType)} />
+
+        <main className="flex-1 p-6 overflow-auto">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold">Local D2 Foundry</h1>
+              <div className="text-sm text-slate-400">{loading ? 'Loading…' : `${total} results`}</div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                className="p-2 bg-slate-800 rounded text-slate-200"
+                placeholder="Search"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <ItemGrid items={items} onOpen={openItem} />
+        </main>
+
+        <div className="w-96 border-l border-slate-700">
+          {selected ? (
+            <ItemDetail item={selected} onClose={() => setSelected(null)} />
+          ) : (
+            <div className="p-6 text-slate-400">Select an item to view details</div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
-
-/*
-=== Tailwind Setup (if you haven't already) ===
-
-1) Install Tailwind + deps (run in frontend folder):
-   npm install -D tailwindcss postcss autoprefixer
-   npx tailwindcss init -p
-
-2) In tailwind.config.cjs set content paths:
-   module.exports = {
-     content: ["./index.html", "./src/**/*.{js,jsx,ts,tsx}"],
-     theme: { extend: {} },
-     plugins: [],
-   }
-
-3) In src/index.css (or main css) add:
-   @tailwind base;
-   @tailwind components;
-   @tailwind utilities;
-
-4) Import the css in src/main.jsx or src/main.tsx:
-   import './index.css';
-
-5) Start dev server (from project root):
-   npm run dev
-
-
-=== Notes ===
-- This starter expects `window.api.getWeapons` and `window.api.getItem` to be exposed via your Electron preload (as we discussed).
-- Images from the manifest are fetched from Bungie CDN; if you need fully offline icons, we can add a local caching step.
-- We kept the design dark and compact; tweak Tailwind classes to taste.
-*/
