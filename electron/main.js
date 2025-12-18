@@ -7,18 +7,13 @@ import sqlite3 from "sqlite3";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// =============================
-// MANIFEST DATABASE
-// =============================
+// Path to manifest SQLite
 const dbPath = path.join(__dirname, "..", "manifest", "world_sql_content.sqlite3");
 
 let db;
-const indexByHash = new Map();   // Lightweight index for lists
-const fullItemMap = new Map();   // Full definitions for detail view
+const indexByHash = new Map();
+const fullItemMap = new Map();
 
-// =============================
-// LOAD MANIFEST
-// =============================
 async function loadManifest() {
   return new Promise((resolve, reject) => {
     db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (err) => {
@@ -40,7 +35,7 @@ async function loadManifest() {
             });
             fullItemMap.set(hash, item);
           } catch {
-            // skip malformed rows
+            // skip malformed
           }
         }
         console.log("✅ Manifest loaded:", indexByHash.size, "items");
@@ -50,9 +45,6 @@ async function loadManifest() {
   });
 }
 
-// =============================
-// CREATE WINDOW
-// =============================
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
@@ -61,12 +53,10 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false, // allow sync IPC
+      sandbox: false,
     },
   });
-
   win.webContents.openDevTools({ mode: "detach" });
-
   if (process.env.NODE_ENV === "development") {
     win.loadURL("http://localhost:5173");
   } else {
@@ -74,9 +64,7 @@ function createWindow() {
   }
 }
 
-// =============================
-// IPC HANDLERS
-// =============================
+// IPC handlers
 ipcMain.handle("get-weapons", (_event, opts = {}) => {
   const limit = opts.limit ?? 200;
   const offset = opts.offset ?? 0;
@@ -87,26 +75,22 @@ ipcMain.handle("get-weapons", (_event, opts = {}) => {
     if (q && !item.name.toLowerCase().includes(q)) return false;
     return true;
   });
-  return {
-    total: filtered.length,
-    items: filtered.slice(offset, offset + limit),
-  };
+  return { total: filtered.length, items: filtered.slice(offset, offset + limit) };
 });
 
 ipcMain.handle("get-item", (_event, hash) => {
   return fullItemMap.get(hash) || null;
 });
 
-// Synchronous item access for quick lookups (e.g. bucket icons)
 ipcMain.on("get-item-sync", (event, hash) => {
   event.returnValue = fullItemMap.get(hash) || null;
 });
 
-// New: fetch plug set by hash (for full perk pool)
+// Correct plug-set query: use "id" column
 ipcMain.handle("get-plugset", (_event, plugSetHash) => {
   return new Promise((resolve) => {
     db.get(
-      "SELECT json FROM DestinyPlugSetDefinition WHERE hash = ?",
+      "SELECT json FROM DestinyPlugSetDefinition WHERE id = ?",
       plugSetHash,
       (err, row) => {
         if (err || !row) {
@@ -123,9 +107,6 @@ ipcMain.handle("get-plugset", (_event, plugSetHash) => {
   });
 });
 
-// =============================
-// APP LIFECYCLE
-// =============================
 app.whenReady().then(async () => {
   try {
     await loadManifest();
@@ -134,7 +115,6 @@ app.whenReady().then(async () => {
     console.error("❌ Manifest load failed:", err);
   }
 });
-
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
