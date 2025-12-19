@@ -13,4 +13,10 @@ contextBridge.exposeInMainWorld("api", {
 
   // New: plug set retrieval (returns the entire DestinyPlugSetDefinition)
   getPlugSet: (plugSetHash) => ipcRenderer.invoke("get-plugset", plugSetHash),
+
+  getSocketType: (hash) => ipcRenderer.invoke("get-socket-type", hash),
+
 });
+
+
+ 

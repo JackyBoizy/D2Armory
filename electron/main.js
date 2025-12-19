@@ -107,6 +107,23 @@ ipcMain.handle("get-plugset", (_event, plugSetHash) => {
   });
 });
 
+ipcMain.handle("get-socket-type", (_event, hash) => {
+  return new Promise((resolve) => {
+    db.get(
+      "SELECT json FROM DestinySocketTypeDefinition WHERE hash = ?",
+      hash,
+      (err, row) => {
+        if (err || !row) return resolve(null);
+        try {
+          resolve(JSON.parse(row.json));
+        } catch {
+          resolve(null);
+        }
+      }
+    );
+  });
+});
+
 app.whenReady().then(async () => {
   try {
     await loadManifest();

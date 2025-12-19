@@ -65,82 +65,95 @@ function dedupeByHash(list) {
   return out;
 }
 
+async function extractPerkColumns(item) {
+  if (!item?.sockets?.socketEntries) return [];
+
+  const columns = [];
+  let traitIndex = 0;
+
+  for (const socket of item.sockets.socketEntries) {
+    // 1) Resolve socket type → category
+    const socketType = await window.api.getSocketType(socket.socketTypeHash);
+    const categoryHash = socketType?.socketCategoryHash;
+
+    let label = null;
+
+    if (categoryHash === CATEGORY_HASH.BARREL) label = "Barrel";
+    else if (categoryHash === CATEGORY_HASH.MAGAZINE) label = "Magazine";
+    else if (categoryHash === CATEGORY_HASH.ORIGIN) label = "Origin";
+    else if (categoryHash === CATEGORY_HASH.TRAITS) {
+      label = traitIndex === 0 ? "Trait 1" : "Trait 2";
+      traitIndex++;
+    }
+
+    if (!label) continue;
+
+    // 2) Collect all possible plug hashes
+    const plugHashes = [];
+
+    if (Array.isArray(socket.reusablePlugItems)) {
+      plugHashes.push(...socket.reusablePlugItems.map(p => p.plugItemHash));
+    }
+
+    const plugSetHash = socket.randomizedPlugSetHash || socket.reusablePlugSetHash;
+    if (plugSetHash) {
+      const plugSet = await window.api.getPlugSet(plugSetHash);
+      const plugs =
+        plugSet?.randomizedPlugItems ||
+        plugSet?.reusablePlugItems ||
+        [];
+      plugHashes.push(...plugs.map(p => p.plugItemHash));
+    }
+
+    // 3) Resolve + filter perks
+    const perks = dedupeByHash(
+      plugHashes
+        .map(h => window.api.getItemSync(h))
+        .filter(isRealPerk)
+    );
+
+    if (!perks.length) continue;
+
+    columns.push({ label, perks });
+  }
+
+  return columns;
+}
+
+
+
+
 function PerkGrid({ item }) {
   const [hover, setHover] = useState(null);
   const [columns, setColumns] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let alive = true;
 
-    async function build() {
-      if (!item?.sockets?.socketEntries || !window.api?.getSocketType) {
-        if (alive) setColumns([]);
+    async function run() {
+      if (!item) {
+        setColumns([]);
         return;
       }
 
-      const next = [];
-      let traitIndex = 0;
-
-      for (const socket of item.sockets.socketEntries) {
-        // 1) resolve socket type -> socketCategoryHash
-        const st = await window.api.getSocketType(socket.socketTypeHash);
-        const categoryHash = st?.socketCategoryHash;
-
-        let label = null;
-
-        if (categoryHash === CATEGORY_HASH.BARREL) label = "Barrel";
-        else if (categoryHash === CATEGORY_HASH.MAGAZINE) label = "Magazine";
-        else if (categoryHash === CATEGORY_HASH.ORIGIN) label = "Origin";
-        else if (categoryHash === CATEGORY_HASH.TRAITS) {
-          label = traitIndex === 0 ? "Trait 1" : "Trait 2";
-          traitIndex++;
-        }
-
-        if (!label) continue;
-
-        // 2) gather plug candidates
-        let plugHashes = [];
-
-        // socket.reusablePlugItems sometimes empty; still try it
-        if (Array.isArray(socket.reusablePlugItems) && socket.reusablePlugItems.length) {
-          plugHashes.push(...socket.reusablePlugItems.map((p) => p.plugItemHash));
-        }
-
-        // 3) plugSet is usually where the *real perk pool* is
-        const plugSetHash = socket.randomizedPlugSetHash || socket.reusablePlugSetHash;
-        if (plugSetHash && window.api?.getPlugSet) {
-          const plugSet = await window.api.getPlugSet(plugSetHash);
-          const plugs =
-            plugSet?.randomizedPlugItems ||
-            plugSet?.reusablePlugItems ||
-            [];
-
-          plugHashes.push(...plugs.map((p) => p.plugItemHash));
-        }
-
-        // 4) resolve to item defs and filter
-        const perks = dedupeByHash(
-          plugHashes
-            .map((h) => window.api.getItemSync(h))
-            .filter(isRealPerk)
-        );
-
-        if (!perks.length) continue;
-
-        next.push({ label, perks });
-      }
-
+      setLoading(true);
+      const cols = await extractPerkColumns(item);
       if (alive) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setColumns(next);
+        setColumns(cols);
+        setLoading(false);
       }
     }
 
-    build();
+    run();
     return () => {
       alive = false;
     };
   }, [item]);
+
+  if (loading) {
+    return <div style={{ opacity: 0.6, marginTop: 20 }}>Loading perks…</div>;
+  }
 
   if (!columns.length) {
     return <div style={{ opacity: 0.6, marginTop: 20 }}>No perks found</div>;
@@ -148,12 +161,14 @@ function PerkGrid({ item }) {
 
   return (
     <div style={{ display: "flex", gap: 20, marginTop: 24 }}>
-      {columns.map((col) => (
+      {columns.map(col => (
         <div key={col.label} style={{ width: 90 }}>
-          <div style={{ textAlign: "center", fontSize: 12, opacity: 0.7 }}>{col.label}</div>
+          <div style={{ textAlign: "center", fontSize: 12, opacity: 0.7 }}>
+            {col.label}
+          </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
-            {col.perks.map((perk) => (
+            {col.perks.map(perk => (
               <div
                 key={perk.hash}
                 onMouseEnter={() => setHover(perk)}
@@ -186,6 +201,7 @@ function PerkGrid({ item }) {
     </div>
   );
 }
+
 
 export default function App() {
   const [query, setQuery] = useState("");
